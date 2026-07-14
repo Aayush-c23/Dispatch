@@ -124,6 +124,9 @@ class OperationalStateStore:
     def __init__(self, initial_state: OperationalState | None = None) -> None:
         self._lock = RLock()
         self._state = (initial_state or build_seed_state()).model_copy(deep=True)
+        self._routes: list[dict[str, Any]] = []
+        self._briefing: dict[str, Any] | None = None
+        self._reasoning_log: list[dict[str, Any]] = []
 
     def get_state(self) -> OperationalState:
         """Return an isolated, validated copy of the current operational state."""
@@ -135,7 +138,15 @@ class OperationalStateStore:
         """Return a JSON-compatible state payload for a WebSocket broadcast."""
 
         with self._lock:
-            return self._state.model_dump(mode="json")
+            payload = {
+                "state": self._state.model_dump(mode="json"),
+                "routes": list(self._routes)
+            }
+            if self._briefing:
+                payload["briefing"] = dict(self._briefing)
+            if self._reasoning_log:
+                payload["reasoning_log"] = list(self._reasoning_log)
+            return payload
 
     def update_convoy_assignment(self, convoy_id: str, request_id: str) -> OperationalState:
         """Assign an available convoy to an open request and return a fresh state copy."""
@@ -163,6 +174,31 @@ class OperationalStateStore:
             request.status = RequestStatus.ASSIGNED
             self._touch()
             return self._state.model_copy(deep=True)
+
+    def update_convoy_status_and_location(self, convoy_id: str, lat: float, lon: float, status: ConvoyStatus) -> None:
+        """Update a convoy's location and status during transit simulation."""
+        with self._lock:
+            convoy = self._find_convoy(convoy_id)
+            convoy.lat = lat
+            convoy.lon = lon
+            convoy.status = status
+            self._touch()
+
+    def save_plan(self, routes: list[dict[str, Any]], briefing: dict[str, Any], reasoning_log: list[dict[str, Any]]) -> None:
+        """Store the generated plan components so they can be broadcast on reconnect."""
+        with self._lock:
+            self._routes = routes
+            self._briefing = briefing
+            self._reasoning_log = reasoning_log
+            self._touch()
+
+    def select_primary_route(self, convoy_id: str, label: str) -> None:
+        """Select an alternate route as primary for a specific convoy."""
+        with self._lock:
+            for route in self._routes:
+                if route.get("convoy_id") == convoy_id:
+                    route["is_primary"] = (route.get("label") == label)
+            self._touch()
 
     def add_hazard(self, hazard: Hazard) -> OperationalState:
         """Add a new validated hazard while keeping hazard IDs unique."""

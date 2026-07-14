@@ -13,10 +13,10 @@ export default function ObjectiveInput({ onGenerate, onInjectDisruption, onInjec
           {isPlanning ? 'Planning…' : 'Generate Plan'}
         </button>
         <button className="generate" onClick={onInjectDisruption} disabled={isPlanning || isSimulatingTransit} style={{ margin: 0, flex: 1, backgroundColor: '#ef5350', fontSize: '7.5px', padding: '0 2px' }}>
-          Disruption
+          {isPlanning ? 'Loading…' : 'Disruption'}
         </button>
         <button className="generate" onClick={onInjectFlood} disabled={isPlanning || isSimulatingTransit} style={{ margin: 0, flex: 1, backgroundColor: '#3b82f6', fontSize: '7.5px', padding: '0 2px' }}>
-          Flood
+          {isPlanning ? 'Loading…' : 'Flood'}
         </button>
         <button className="generate" onClick={onSimulateTransit} disabled={!canTransit} style={{ margin: 0, flex: 1, backgroundColor: '#10b981', fontSize: '7.5px', padding: '0 2px' }}>
           {isSimulatingTransit ? 'Moving…' : 'Transit'}

@@ -63,3 +63,30 @@ export async function fetchLiveContext() {
 
   return response.json();
 }
+
+export async function startTransit() {
+  const response = await fetch(`${API_BASE_URL}/transit/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to start transit (${response.status}).`);
+  }
+
+  return response.json();
+}
+
+export async function selectRoute(convoyId, label) {
+  const response = await fetch(`${API_BASE_URL}/routes/select`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ convoy_id: convoyId, label }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to select route (${response.status}).`);
+  }
+
+  return response.json();
+}

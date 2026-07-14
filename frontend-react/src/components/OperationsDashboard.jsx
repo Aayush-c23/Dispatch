@@ -19,9 +19,9 @@ export default function OperationsDashboard({ state, routes = [] }) {
   let cumulative = 0;
   const reached = requests.map((req, idx) => {
     if (req.status !== 'OPEN') {
-      cumulative += req.population_affected;
+      cumulative += (req.population_affected || 0);
     }
-    return { name: req.type.substring(0, 4), v: cumulative || 80 * (idx + 1) };
+    return { name: req.type.substring(0, 4), v: cumulative || (80 * (idx + 1)) };
   });
   if (reached.length === 0) {
     for (let i = 1; i <= 5; i++) reached.push({ name: `R${i}`, v: 80 * i });
@@ -29,7 +29,7 @@ export default function OperationsDashboard({ state, routes = [] }) {
 
   // 2. Delays (Transit Times in minutes)
   const delays = routes.map((r) => {
-    const mins = Math.round(r.estimated_seconds / 60) || 5;
+    const mins = r.estimated_seconds ? Math.round(r.estimated_seconds / 60) : 5;
     const name = convoys.find((c) => c.convoy_id === r.convoy_id)?.name.split(' ')[0] || r.convoy_id.substring(7);
     return { name, v: mins };
   });
@@ -39,7 +39,7 @@ export default function OperationsDashboard({ state, routes = [] }) {
 
   // 3. Efficiency (Route Distance in km)
   const efficiency = routes.map((r) => {
-    const km = parseFloat((r.distance_meters / 1000).toFixed(2)) || 1.2;
+    const km = r.distance_meters ? parseFloat((r.distance_meters / 1000).toFixed(2)) : 1.2;
     const n = convoys.find((c) => c.convoy_id === r.convoy_id)?.name.split(' ')[0] || r.convoy_id.substring(7);
     return { n, v: km };
   });

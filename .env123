@@ -1,0 +1,25 @@
+# ─────────────────────────────────────────────────────────────
+#  ReliefGrid / Dispatch — Environment Variables
+#  Copy this file and fill in your actual keys.
+#  This file is already in .gitignore — never commit real keys.
+# ─────────────────────────────────────────────────────────────
+
+# ── LLM Provider ──────────────────────────────────────────────
+# Choose which LLM backend to use: "openai" or "groq"
+LLM_PROVIDER=groq
+
+# ── OpenAI ────────────────────────────────────────────────────
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4o-mini
+
+# ── Groq ──────────────────────────────────────────────────────
+GROQ_API_KEY=
+GROQ_MODEL=llama-3.3-70b-versatile
+
+# ── Backend (FastAPI) ─────────────────────────────────────────
+ENVIRONMENT=local
+
+# ── Frontend (Vite — prefixed with VITE_) ─────────────────────
+# Override only if backend is NOT on localhost:8000
+# VITE_API_URL=http://localhost:8000
+# VITE_OPS_WS_URL=ws://localhost:8000/ws/ops

@@ -120,6 +120,11 @@ class PlanningService:
             ),
             state=state,
         )
+        self._store.save_plan(
+            routes=[route.model_dump(mode="json") for route in response.routes],
+            briefing=response.briefing.model_dump(mode="json"),
+            reasoning_log=[log.model_dump(mode="json") for log in response.reasoning_log],
+        )
         self._last_planning_response = response
         return response
 
@@ -240,7 +245,7 @@ class PlanningService:
         used_llm: bool,
         used_llm_briefing: bool,
     ) -> list[ReasoningLogEntry]:
-        return [
+        logs = [
             ReasoningLogEntry(
                 timestamp=timestamp,
                 message=(
@@ -259,7 +264,19 @@ class PlanningService:
             ReasoningLogEntry(
                 timestamp=timestamp,
                 message=f"Produced {len(actions)} feasible convoy assignment(s) and route(s).",
-            ),
+            )
+        ]
+        
+        for action in actions:
+            if action.action_type in {ActionType.ASSIGN, ActionType.REROUTE} and action.rationale:
+                logs.append(
+                    ReasoningLogEntry(
+                        timestamp=timestamp,
+                        message=f"[ETA Solver] Convoy '{action.target_convoy_id}': {action.rationale}"
+                    )
+                )
+
+        logs.append(
             ReasoningLogEntry(
                 timestamp=timestamp,
                 message=(
@@ -267,8 +284,9 @@ class PlanningService:
                     if used_llm_briefing
                     else "Deterministic Mission Briefing fallback selected."
                 ),
-            ),
-        ]
+            )
+        )
+        return logs
 
 
 planning_service = PlanningService()
