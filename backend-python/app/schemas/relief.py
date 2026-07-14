@@ -171,9 +171,46 @@ class PlanningResponse(SchemaModel):
     state: OperationalState
 
 
+class DisruptionReplan(SchemaModel):
+    """Validated LLM output for a plan revised after an operational disruption."""
+
+    command: ObjectiveCommand
+    briefing: MissionBriefing
+    change_summary: str = Field(min_length=1)
+
+
+class OperationalQueryRequest(SchemaModel):
+    """A coordinator's natural-language query about live state."""
+
+    question: str = Field(min_length=1)
+
+
+class OperationalQueryResponse(SchemaModel):
+    """A state-grounded answer to a coordinator's operational question."""
+
+    answer: str = Field(min_length=1)
+
+
 class DisruptionEventRequest(SchemaModel):
     hazard_id: str = Field(min_length=1)
     edge_ids: list[str] = Field(min_length=1)
     type: HazardType
     severity: Severity
     description: str = Field(min_length=1)
+
+
+class WeatherData(SchemaModel):
+    """Real-time weather parameters for the demo region."""
+
+    temperature: float
+    weathercode: int
+    windspeed: float
+    description: str
+
+
+class GDACSAlert(SchemaModel):
+    """A live disaster alert fetched from GDACS RSS."""
+
+    title: str
+    description: str
+    link: str | None = None

@@ -62,6 +62,7 @@ export default function MapView({ routes, state }) {
       const hazardCoords = {
         'haz-river-flood-watch': [-0.131, 51.507],
         'haz-bridge-7-collapse': [-0.138, 51.5029],
+        'haz-river-flood-surge': [-0.1402, 51.5014],
       };
       currentState.hazards.forEach((h) => {
         const coords = hazardCoords[h.hazard_id] || [-0.131, 51.507];

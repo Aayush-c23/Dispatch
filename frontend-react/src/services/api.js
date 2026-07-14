@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? `${window.location.protocol}//${window.location.hostname}:8000`;
 
 export async function createPlan(objective) {
   const response = await fetch(`${API_BASE_URL}/plan`, {
@@ -36,6 +36,29 @@ export async function askOperationalQuery(question) {
 
   if (!response.ok) {
     throw new Error(`Operational query failed (${response.status}).`);
+  }
+
+  return response.json();
+}
+
+export async function triggerFlood() {
+  const response = await fetch(`${API_BASE_URL}/events/flood-surge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Flood surge trigger failed (${response.status}).`);
+  }
+
+  return response.json();
+}
+
+export async function fetchLiveContext() {
+  const response = await fetch(`${API_BASE_URL}/live-context`);
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch live context (${response.status}).`);
   }
 
   return response.json();
