@@ -5,3 +5,10 @@ dist/
 __pycache__/
 *.py[cod]
 *.graphml
+backend-python/.deps/
+engine-service/.deps/
+cache/
+engine-service/data/*.graphml
+engine-service/data/*.geojson
+engine-service/data/*.json
+!engine-service/data/.gitkeep
