@@ -1,3 +1,5 @@
 import Panel from './Panel';
-const lines=['GPT-5.6 — Crisis Response Agent','> Analyzing coordinator objective…','✓ Sector 4 access route confirmed clear.','! Elm Street shelter: 340 occupants, high priority.','→ Assigning Convoy 2 to medical delivery.','→ Assigning Convoy 1 to evacuation corridor.','> Evaluating flooding contingency…','✓ Generating Mission Briefing…'];
-export default function ReasoningLog(){return <Panel title="AI Reasoning Log" className="reasoning"><div className="log">{lines.map((line,i)=><div className={i===0?'agent':''} key={line}>{line}</div>)}<span className="cursor">▋</span></div></Panel>}
+
+export default function ReasoningLog({ entries }) {
+  return <Panel title="AI Reasoning Log" className="reasoning"><div className="log">{entries.map((entry, index) => <div className={entry.level === 'AGENT' ? 'agent' : ''} key={`${entry.timestamp ?? 'fallback'}-${index}`}>{entry.message}</div>)}<span className="cursor">▋</span></div></Panel>;
+}

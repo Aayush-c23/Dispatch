@@ -1,3 +1,12 @@
 import Panel from './Panel';
-const rows=[['Current assessment','Rising floodwater is constraining central access. Elm Street shelter has 340 occupants and requires evacuation before nightfall.'],['Highest-risk areas','1. Elm Street shelter · 2. River crossing · 3. Sector 4 clinic'],['Convoy assignments','Convoy 1 → Elm Street evacuation; Convoy 2 → Sector 4 medical delivery.'],['Predicted bottlenecks','River crossing congestion and flooding on the central access corridor.'],['Backup plan','If Elm Street access fails, Convoy 1 reroutes west via A420, adding an estimated 12 minutes.']];
-export default function MissionBriefing(){return <Panel title="Mission Briefing" className="briefing">{rows.map(([label,text])=><div className="brief-row" key={label}><h3>{label}</h3><p>{text}</p></div>)}<div className="confidence"><span>Plan confidence</span><strong>HIGH · 82%</strong></div></Panel>}
+
+export default function MissionBriefing({ briefing }) {
+  const rows = [
+    ['Current assessment', briefing.crisis_assessment],
+    ['Highest-risk areas', briefing.highest_risk_areas.map((area, index) => `${index + 1}. ${area.description}`).join(' · ')],
+    ['Convoy assignments', briefing.convoy_assignments.map((assignment) => `${assignment.convoy_id} → ${assignment.request_id}`).join('; ')],
+    ['Predicted bottlenecks', briefing.predicted_bottlenecks.map((bottleneck) => bottleneck.description).join(' · ')],
+    ['Backup plan', briefing.backup_plan],
+  ];
+  return <Panel title="Mission Briefing" className="briefing">{rows.map(([label, text]) => <div className="brief-row" key={label}><h3>{label}</h3><p>{text || 'No current operational data.'}</p></div>)}<div className="confidence"><span>Plan confidence</span><strong>{briefing.confidence_level}</strong></div></Panel>;
+}
