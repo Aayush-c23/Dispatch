@@ -7,6 +7,7 @@ __pycache__/
 *.graphml
 backend-python/.deps/
 engine-service/.deps/
+engine-service/.venv/
 cache/
 engine-service/data/*.graphml
 engine-service/data/*.geojson

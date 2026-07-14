@@ -88,9 +88,29 @@ Verified health result:
 
 Important note: an attempted local target install into `backend-python/.deps` produced a Windows access-denied import issue for the FastAPI package. Use `backend-python/.venv` for backend work.
 
+Phase 1 Task 3 is complete:
+
+- `engine-service/src/graph_loader.py` loads the saved GraphML graph.
+- Edge attributes are normalized for `edge_id`, `status`, `length`, `travel_time`, `hazard_multiplier`, and `blocked`.
+- Blocked, closed, or impassable edges are excluded by the routing weight callback.
+- `engine-service/src/router.py` computes Dijkstra routes between latitude/longitude points.
+- Route results include origin/destination nodes, node IDs, edge IDs, map-ready geometry, distance meters, and estimated seconds.
+- Engine dependencies were installed successfully into `engine-service/.venv`.
+
+Verified route result:
+
+```text
+Graph: 1716 nodes, 3468 edges
+Route: 12 nodes, 11 edges, 12 geometry points
+Distance: 1170.3 meters
+ETA: 130.9 seconds
+Start: {'lat': 51.5011541, 'lon': -0.140452}
+End: {'lat': 51.5075476, 'lon': -0.1278268}
+```
+
 ## Current Git State
 
-There are uncommitted changes from Phase 1 Tasks 1 and 2. Do not revert them.
+There are uncommitted changes from Phase 1 Tasks 1, 2, and 3. Do not revert them.
 
 Expected modified/untracked files include:
 
@@ -101,6 +121,8 @@ backend-python/app/core/config.py
 backend-python/app/main.py
 engine-service/data/.gitkeep
 engine-service/requirements.txt
+engine-service/src/graph_loader.py
+engine-service/src/router.py
 engine-service/scripts/fetch_road_network.py
 IMPLEMENTATION_HANDOFF.md
 ```
@@ -121,10 +143,16 @@ The backend virtual environment is:
 backend-python\.venv
 ```
 
-The engine dependency target folder is:
+The engine dependency target folder from the earlier install attempt is:
 
 ```text
 engine-service\.deps
+```
+
+The engine virtual environment is:
+
+```text
+engine-service\.venv
 ```
 
 The repo `.gitignore` should ignore:
@@ -132,6 +160,7 @@ The repo `.gitignore` should ignore:
 ```text
 backend-python/.deps/
 engine-service/.deps/
+engine-service/.venv/
 cache/
 engine-service/data/*.graphml
 engine-service/data/*.geojson
@@ -252,11 +281,11 @@ Fetches Central London OSM road graph and writes GraphML.
 
 `engine-service/src/graph_loader.py`
 
-Still a placeholder. Must load GraphML and normalize edge attributes.
+Loads the local GraphML graph and normalizes edge attributes for routing.
 
 `engine-service/src/router.py`
 
-Still a placeholder. Must implement A*/Dijkstra route calculation.
+Computes Dijkstra routes between latitude/longitude points and returns route geometry, edge IDs, distance, and ETA.
 
 `engine-service/src/assignment_solver.py`
 
@@ -422,6 +451,8 @@ Follow this order. After each task, report what changed, how it was tested, and 
 
 ### Task 3: Routing Engine Graph Loader And Basic Routing
 
+Status: complete.
+
 Goal: Load the saved OSM GraphML and compute routes between two latitude/longitude points.
 
 Implementation:
@@ -433,7 +464,7 @@ Implementation:
 - Use `travel_time` or `length` as route weight.
 - Update `engine-service/src/router.py`.
 - Provide a function like `route_between_points(origin_lat, origin_lon, dest_lat, dest_lon)`.
-- Snap coordinates to nearest graph nodes using osmnx.
+- Snap coordinates to nearest graph nodes using a direct nearest-node scan for this compact graph.
 - Return route geometry as ordered `[lat, lon]` or GeoJSON coordinates, distance meters, estimated travel time seconds, and edge IDs.
 
 Verification:
@@ -441,6 +472,22 @@ Verification:
 - Run a script/import check that loads the graph.
 - Route between two known Central London coordinates.
 - Confirm a non-empty path, distance, ETA, and geometry.
+
+Verified command:
+
+```powershell
+$env:PYTHONPATH=(Resolve-Path 'engine-service').Path
+engine-service\.venv\Scripts\python.exe -c "from src.graph_loader import load_graph; from src.router import route_between_points; graph = load_graph(); route = route_between_points(51.5014, -0.1419, 51.5079, -0.1280); result = route.to_dict(); print(len(graph.nodes), len(graph.edges)); print(len(result['node_ids']), len(result['edge_ids']), len(result['geometry'])); print(result['distance_meters'], result['estimated_seconds']); print(result['geometry'][0], result['geometry'][-1])"
+```
+
+Verified output:
+
+```text
+1716 3468
+12 11 12
+1170.3 130.9
+{'lat': 51.5011541, 'lon': -0.140452} {'lat': 51.5075476, 'lon': -0.1278268}
+```
 
 ### Task 4: Convoy Assignment Solver
 
@@ -708,11 +755,16 @@ If `vite` is not recognized, run `npm install` again inside `frontend-react/`.
 From repo root, after graph exists:
 
 ```powershell
-$env:PYTHONPATH=(Resolve-Path 'engine-service\.deps').Path + ';' + (Resolve-Path 'engine-service').Path
-C:\Users\aayus\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -c "from src.graph_loader import load_graph; graph = load_graph(); print(len(graph.nodes), len(graph.edges))"
+$env:PYTHONPATH=(Resolve-Path 'engine-service').Path
+engine-service\.venv\Scripts\python.exe -c "from src.graph_loader import load_graph; graph = load_graph(); print(len(graph.nodes), len(graph.edges))"
 ```
 
-This command will only work after Task 3 implements `load_graph`.
+Route smoke test:
+
+```powershell
+$env:PYTHONPATH=(Resolve-Path 'engine-service').Path
+engine-service\.venv\Scripts\python.exe -c "from src.router import route_between_points; route = route_between_points(51.5014, -0.1419, 51.5079, -0.1280); print(route.to_dict())"
+```
 
 ## Demo Region
 
@@ -818,4 +870,3 @@ Before Devpost submission:
 - README includes OSM graph regeneration instructions.
 - Demo video shows objective -> plan -> briefing -> route execution -> disruption -> autonomous replan -> updated briefing.
 - Re-check official Devpost rules/submission form directly before final submission.
-
