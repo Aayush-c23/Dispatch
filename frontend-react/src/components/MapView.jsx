@@ -74,7 +74,7 @@ export default function MapView({ routes, state }) {
   }
 
   useEffect(() => {
-    const map = new maplibregl.Map({ container: ref.current, style: 'https://demotiles.maplibre.org/style.json', center, zoom: 13.1, pitch: 52, bearing: -18, antialias: true, attributionControl: false });
+    const map = new maplibregl.Map({ container: ref.current, style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json', center, zoom: 13.1, pitch: 52, bearing: -18, antialias: true, attributionControl: false });
     mapRef.current = map;
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
     map.on('load', () => {

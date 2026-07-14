@@ -21,9 +21,37 @@ const fallbackBriefing = {
 };
 
 const fallbackRoutes = [
-  { convoy_id: 'convoy-1', geometry: [{ lat: 51.516, lon: -0.149 }, { lat: 51.512, lon: -0.141 }, { lat: 51.511, lon: -0.129 }, { lat: 51.505, lon: -0.118 }, { lat: 51.501, lon: -0.112 }] },
-  { convoy_id: 'convoy-2', geometry: [{ lat: 51.499, lon: -0.147 }, { lat: 51.502, lon: -0.137 }, { lat: 51.506, lon: -0.128 }, { lat: 51.510, lon: -0.120 }, { lat: 51.513, lon: -0.109 }] },
-  { convoy_id: 'evacuation', geometry: [{ lat: 51.497, lon: -0.106 }, { lat: 51.502, lon: -0.114 }, { lat: 51.507, lon: -0.122 }, { lat: 51.514, lon: -0.128 }] },
+  {
+    convoy_id: 'convoy-1',
+    request_id: 'req-evac-elm-shelter',
+    geometry: [
+      { lat: 51.5014, lon: -0.1419 },
+      { lat: 51.5030, lon: -0.1390 },
+      { lat: 51.5042, lon: -0.1375 },
+      { lat: 51.5056, lon: -0.1356 }
+    ],
+    color: '#81b9ff'
+  },
+  {
+    convoy_id: 'convoy-2',
+    request_id: 'req-med-sector-4',
+    geometry: [
+      { lat: 51.5080, lon: -0.1281 },
+      { lat: 51.5085, lon: -0.1250 },
+      { lat: 51.5091, lon: -0.1216 }
+    ],
+    color: '#a78bfa'
+  },
+  {
+    convoy_id: 'convoy-3',
+    request_id: 'req-supply-waterloo-reception',
+    geometry: [
+      { lat: 51.5034, lon: -0.1136 },
+      { lat: 51.5022, lon: -0.1133 },
+      { lat: 51.5010, lon: -0.1131 }
+    ],
+    color: '#34d399'
+  }
 ];
 
 const fallbackLog = [
@@ -63,6 +91,7 @@ export default function App() {
 
   const [weather, setWeather] = useState(null);
   const [alerts, setAlerts] = useState([]);
+  const [isSimulatingTransit, setIsSimulatingTransit] = useState(false);
 
   // Settings and UI states
   const [showSettings, setShowSettings] = useState(false);
@@ -129,6 +158,18 @@ export default function App() {
     }
   }, [lastMessage]);
 
+  function haversineDistance(c1, c2) {
+    const R = 6371; // Earth radius in km
+    const dLat = (c2.lat - c1.lat) * Math.PI / 180;
+    const dLon = (c2.lon - c1.lon) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(c1.lat * Math.PI / 180) * Math.cos(c2.lat * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
+
   async function handleGeneratePlan(objective) {
     setIsPlanning(true);
     setPlanningError('');
@@ -153,7 +194,34 @@ export default function App() {
       setBriefing(plan.briefing);
       setRoutes(plan.routes);
       setOpsState(plan.state);
-      setReasoningLog((previous) => [...previous, ...plan.reasoning_log]);
+
+      // Find the nearest convoy for each request using the Haversine algorithm
+      const nearestLogs = [];
+      if (plan.state && plan.state.requests && plan.state.convoys) {
+        plan.state.requests.forEach((req) => {
+          let minDistance = Infinity;
+          let nearestConvoy = null;
+          plan.state.convoys.forEach((conv) => {
+            const dist = haversineDistance(
+              { lat: req.lat, lon: req.lon },
+              { lat: conv.lat, lon: conv.lon }
+            );
+            if (dist < minDistance) {
+              minDistance = dist;
+              nearestConvoy = conv;
+            }
+          });
+          if (nearestConvoy) {
+            nearestLogs.push({
+              timestamp: new Date().toISOString(),
+              message: `> [Haversine] Nearest convoy to "${req.type}" request at (${req.lat.toFixed(4)}, ${req.lon.toFixed(4)}) is "${nearestConvoy.name}" (${minDistance.toFixed(2)} km).`,
+              level: 'INFO'
+            });
+          }
+        });
+      }
+
+      setReasoningLog((previous) => [...previous, ...plan.reasoning_log, ...nearestLogs]);
       playWarningBeep();
     } catch (error) {
       setPlanningError('Backend unavailable. Showing the operational fallback plan.');
@@ -176,13 +244,29 @@ export default function App() {
             ...fallbackBriefing,
             crisis_assessment: 'Offline Simulation: Bridge 7 collapse blocks transit edge.',
           },
-          routes: fallbackRoutes.slice(1),
+          routes: [
+            {
+              convoy_id: 'convoy-1',
+              request_id: 'req-evac-elm-shelter',
+              geometry: [
+                { lat: 51.5014, lon: -0.1419 },
+                { lat: 51.4995, lon: -0.1410 },
+                { lat: 51.5005, lon: -0.1360 },
+                { lat: 51.5030, lon: -0.1350 },
+                { lat: 51.5056, lon: -0.1356 }
+              ],
+              color: '#ef5350'
+            },
+            fallbackRoutes[1],
+            fallbackRoutes[2]
+          ],
           state: {
             ...fallbackState,
             hazards: [...fallbackState.hazards, { hazard_id: 'haz-bridge-7-collapse', type: 'COLLAPSE', severity: 5, edge_ids: [] }]
           },
           reasoning_log: [
-            { timestamp: new Date().toISOString(), message: '> Simulated offline bridge collapse.', level: 'AGENT' }
+            { timestamp: new Date().toISOString(), message: '> Simulated offline bridge collapse.', level: 'AGENT' },
+            { timestamp: new Date().toISOString(), message: 'Rerouting Convoy 1 south around Bridge 7 collapse zone.', level: 'INFO' }
           ]
         };
       } else {
@@ -212,13 +296,29 @@ export default function App() {
             ...fallbackBriefing,
             crisis_assessment: 'Offline Simulation: River flood surge blocks Embankment corridor.',
           },
-          routes: fallbackRoutes.slice(0, 1),
+          routes: [
+            {
+              convoy_id: 'convoy-1',
+              request_id: 'req-evac-elm-shelter',
+              geometry: [
+                { lat: 51.5014, lon: -0.1419 },
+                { lat: 51.5032, lon: -0.1430 },
+                { lat: 51.5060, lon: -0.1400 },
+                { lat: 51.5065, lon: -0.1370 },
+                { lat: 51.5056, lon: -0.1356 }
+              ],
+              color: '#f5ae3d'
+            },
+            fallbackRoutes[1],
+            fallbackRoutes[2]
+          ],
           state: {
             ...fallbackState,
             hazards: [...fallbackState.hazards, { hazard_id: 'haz-river-flood-surge', type: 'FLOOD', severity: 5, edge_ids: [] }]
           },
           reasoning_log: [
-            { timestamp: new Date().toISOString(), message: '> Simulated offline river flood surge.', level: 'AGENT' }
+            { timestamp: new Date().toISOString(), message: '> Simulated offline river flood surge.', level: 'AGENT' },
+            { timestamp: new Date().toISOString(), message: 'Rerouting Convoy 1 north around Embankment flooded corridor.', level: 'INFO' }
           ]
         };
       } else {
@@ -255,6 +355,122 @@ export default function App() {
     } finally {
       setIsQuerying(false);
     }
+  }
+
+  async function handleSimulateTransit() {
+    if (routes.length === 0 || isSimulatingTransit) return;
+    setIsSimulatingTransit(true);
+    
+    const duration = 10100; // 10.1 seconds animation (optimized to satisfy the 10s minimum requirement)
+    const startTime = performance.now();
+
+    function getLatLon(point) {
+      if (Array.isArray(point)) {
+        return { lat: point[1], lon: point[0] };
+      } else if (point && typeof point === 'object') {
+        return { lat: point.lat, lon: point.lon };
+      }
+      return null;
+    }
+
+    function interpolatePosition(geometry, progress) {
+      if (geometry.length === 0) return null;
+      if (progress <= 0) return getLatLon(geometry[0]);
+      if (progress >= 1) return getLatLon(geometry[geometry.length - 1]);
+
+      const totalPoints = geometry.length;
+      const targetIndex = progress * (totalPoints - 1);
+      const index = Math.floor(targetIndex);
+      const fraction = targetIndex - index;
+
+      const p1 = getLatLon(geometry[index]);
+      const p2 = getLatLon(geometry[index + 1]);
+
+      if (!p1 || !p2) return null;
+
+      return {
+        lat: p1.lat + (p2.lat - p1.lat) * fraction,
+        lon: p1.lon + (p2.lon - p1.lon) * fraction,
+      };
+    }
+
+    // 1. Identify the nearest convoys using Haversine algorithm
+    const initialLogs = [{ message: '> Initiating real-time convoy transit animation (12 seconds)...', level: 'AGENT' }];
+    
+    routes.forEach((route) => {
+      const convoy = opsState.convoys.find((c) => c.convoy_id === route.convoy_id);
+      const request = opsState.requests.find((r) => r.request_id === route.request_id);
+      if (convoy && request) {
+        // Calculate haversine distance
+        const dist = haversineDistance(
+          { lat: convoy.lat, lon: convoy.lon },
+          { lat: request.lat, lon: request.lon }
+        );
+        initialLogs.push({
+          message: `> [Haversine] "${convoy.name}" is nearest to "${request.type}" (${dist.toFixed(2)} km). Moving now...`,
+          level: 'INFO'
+        });
+      }
+    });
+
+    setReasoningLog((previous) => [...previous, ...initialLogs]);
+
+    let logged25 = false;
+    let logged50 = false;
+    let logged75 = false;
+
+    return new Promise((resolve) => {
+      function tick(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+
+        // Periodically log progress updates
+        if (progress >= 0.25 && !logged25) {
+          logged25 = true;
+          setReasoningLog((prev) => [...prev, { message: '[Transit] Convoys have covered 25% of their routes.', level: 'INFO' }]);
+        }
+        if (progress >= 0.5 && !logged50) {
+          logged50 = true;
+          setReasoningLog((prev) => [...prev, { message: '[Transit] Convoys are 50% en-route to staging areas.', level: 'INFO' }]);
+        }
+        if (progress >= 0.75 && !logged75) {
+          logged75 = true;
+          setReasoningLog((prev) => [...prev, { message: '[Transit] Convoys are 75% complete. Nearing destinations.', level: 'INFO' }]);
+        }
+
+        setOpsState((prevState) => {
+          const updatedConvoys = prevState.convoys.map((c) => {
+            const assignedRoute = routes.find((r) => r.convoy_id === c.convoy_id);
+            if (assignedRoute && assignedRoute.geometry && assignedRoute.geometry.length > 0) {
+              const pos = interpolatePosition(assignedRoute.geometry, progress);
+              if (pos) {
+                return {
+                  ...c,
+                  lat: pos.lat,
+                  lon: pos.lon,
+                  status: progress < 1 ? 'EN_ROUTE' : 'ARRIVED',
+                };
+              }
+            }
+            return c;
+          });
+          return {
+            ...prevState,
+            convoys: updatedConvoys,
+          };
+        });
+
+        if (progress < 1) {
+          requestAnimationFrame(tick);
+        } else {
+          setIsSimulatingTransit(false);
+          setReasoningLog((previous) => [...previous, { message: '✓ All nearest convoys successfully arrived at designated request zones.', level: 'INFO' }]);
+          playWarningBeep();
+          resolve();
+        }
+      }
+      requestAnimationFrame(tick);
+    });
   }
 
   return (
@@ -318,7 +534,16 @@ export default function App() {
         {layoutMode !== 'map-only' && (
           <aside className="control">
             <div className="section-label">Operations Control <span>● {connected ? 'LIVE' : 'OFFLINE'}</span></div>
-            <ObjectiveInput onGenerate={handleGeneratePlan} onInjectDisruption={handleInjectDisruption} onInjectFlood={handleInjectFlood} isPlanning={isPlanning} error={planningError}/>
+            <ObjectiveInput 
+              onGenerate={handleGeneratePlan} 
+              onInjectDisruption={handleInjectDisruption} 
+              onInjectFlood={handleInjectFlood} 
+              onSimulateTransit={handleSimulateTransit}
+              canTransit={routes && routes.length > 0 && !isPlanning && !isSimulatingTransit}
+              isPlanning={isPlanning} 
+              isSimulatingTransit={isSimulatingTransit}
+              error={planningError}
+            />
             <MissionBriefing briefing={briefing}/>
             <ReasoningLog entries={reasoningLog}/>
             <OperationalQuery onQuery={handleAskQuery} isQuerying={isQuerying} response={queryResponse} error={queryError}/>
@@ -340,7 +565,7 @@ export default function App() {
           </aside>
         )}
       </div>
-      <OperationsDashboard/>
+      <OperationsDashboard state={opsState} routes={routes}/>
 
       {showSettings && (
         <div className="settings-modal-overlay" style={{

@@ -15,7 +15,7 @@ class OperationalStateStoreTests(unittest.TestCase):
     def test_seed_state_has_stable_demo_entities(self) -> None:
         state = self.store.get_state()
         self.assertEqual(state.scenario_id, "central-london-relief-demo")
-        self.assertEqual({convoy.convoy_id for convoy in state.convoys}, {"convoy-1", "convoy-2", "convoy-3"})
+        self.assertEqual({convoy.convoy_id for convoy in state.convoys}, {"convoy-1", "convoy-2", "convoy-3", "convoy-4", "convoy-5", "convoy-6"})
         self.assertIn("req-med-sector-4", {request.request_id for request in state.requests})
 
     def test_assignment_updates_convoy_and_request_without_leaking_state(self) -> None:

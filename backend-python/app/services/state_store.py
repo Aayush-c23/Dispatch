@@ -53,6 +53,30 @@ def build_seed_state() -> OperationalState:
                 status=ConvoyStatus.STAGING,
                 capacity=100,
             ),
+            Convoy(
+                convoy_id="convoy-4",
+                name="Lambeth Relief Logistics",
+                lat=51.4985,
+                lon=-0.1172,
+                status=ConvoyStatus.STAGING,
+                capacity=90,
+            ),
+            Convoy(
+                convoy_id="convoy-5",
+                name="Chelsea Support Vehicle",
+                lat=51.4875,
+                lon=-0.1682,
+                status=ConvoyStatus.STAGING,
+                capacity=70,
+            ),
+            Convoy(
+                convoy_id="convoy-6",
+                name="Southwark Relief Convoy",
+                lat=51.5035,
+                lon=-0.0982,
+                status=ConvoyStatus.STAGING,
+                capacity=120,
+            ),
         ],
         requests=[
             ReliefRequest(
