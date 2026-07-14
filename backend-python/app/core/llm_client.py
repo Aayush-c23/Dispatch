@@ -1,4 +1,8 @@
-"""Schema-enforced GPT planning with safe deterministic fallbacks."""
+"""Schema-enforced LLM planning with safe deterministic fallbacks.
+
+Supports both OpenAI and Groq backends via the OpenAI-compatible SDK.
+Set LLM_PROVIDER in .env to switch between providers.
+"""
 
 from __future__ import annotations
 
@@ -34,21 +38,27 @@ class LLMClient:
         api_key: str | None = None,
         model: str | None = None,
         client: Any | None = None,
+        base_url: str | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._client = client
+        self._base_url = base_url
         self._last_plan: ObjectiveCommand | None = None
         self._last_briefing: MissionBriefing | None = None
         self._last_replan: DisruptionReplan | None = None
 
     @property
     def api_key(self) -> str | None:
-        return self._api_key or settings.openai_api_key
+        return self._api_key or settings.active_llm_api_key
 
     @property
     def model(self) -> str:
-        return self._model or settings.openai_model
+        return self._model or settings.active_llm_model
+
+    @property
+    def base_url(self) -> str | None:
+        return self._base_url or settings.active_llm_base_url
 
     @property
     def is_configured(self) -> bool:
@@ -81,7 +91,8 @@ class LLMClient:
     ) -> MissionBriefing:
         prompt = (
             "Generate a concise operational Mission Briefing. Return only the required structured output. "
-            "Ground every statement in the supplied state and plan.\n\n"
+            "Ground every statement in the supplied state and plan. "
+            "If multiple alternate routes are present, briefly explain the trade-offs between them in the assessment or predicted bottlenecks.\n\n"
             f"Coordinator objective:\n{objective}\n\nCurrent plan:\n{command.model_dump_json()}\n\n"
             f"Operational state:\n{self._state_json(state)}"
         )
@@ -137,43 +148,8 @@ class LLMClient:
         if not self.is_configured:
             return fallback()
         try:
-            response = self._get_client().responses.parse(
-                model=self.model,
-                input=[
-                    {
-                        "role": "system",
-                        "content": "You are a humanitarian logistics planning assistant. Follow the output schema exactly.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                text_format=schema,
-            )
-            parsed = getattr(response, "output_parsed", None)
-            if parsed is None:
-                raise ValueError("Responses API returned no structured output.")
-            result = schema.model_validate(parsed)
+            result = self._call_llm(schema, prompt)
         except (Exception, ValidationError):
-            if self.model == "gpt-5.6":
-                try:
-                    response = self._get_client().responses.parse(
-                        model="gpt-4o-mini",
-                        input=[
-                            {
-                                "role": "system",
-                                "content": "You are a humanitarian logistics planning assistant. Follow the output schema exactly.",
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                        text_format=schema,
-                    )
-                    parsed = getattr(response, "output_parsed", None)
-                    if parsed is not None:
-                        result = schema.model_validate(parsed)
-                        if cache_name:
-                            setattr(self, cache_name, result)
-                        return result
-                except Exception:
-                    pass
             cached = getattr(self, cache_name) if cache_name else None
             return cached if cached is not None else fallback()
 
@@ -181,11 +157,44 @@ class LLMClient:
             setattr(self, cache_name, result)
         return result
 
+    def _call_llm(
+        self,
+        schema: type[StructuredOutput],
+        prompt: str,
+    ) -> StructuredOutput:
+        """Call the LLM via the OpenAI-compatible chat completions API.
+
+        Works with both OpenAI and Groq since Groq exposes the same
+        ``/v1/chat/completions`` endpoint.
+        """
+        client = self._get_client()
+        json_schema_str = json.dumps(schema.model_json_schema())
+        system_msg = (
+            "You are a humanitarian logistics planning assistant. "
+            "Respond ONLY with valid JSON matching this schema — no markdown, no commentary:\n"
+            f"{json_schema_str}"
+        )
+
+        response = client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.2,
+        )
+        raw = response.choices[0].message.content
+        return schema.model_validate_json(raw)
+
     def _get_client(self) -> Any:
         if self._client is None:
             from openai import OpenAI
 
-            self._client = OpenAI(api_key=self.api_key)
+            kwargs: dict[str, Any] = {"api_key": self.api_key}
+            if self.base_url:
+                kwargs["base_url"] = self.base_url
+            self._client = OpenAI(**kwargs)
         return self._client
 
     @staticmethod

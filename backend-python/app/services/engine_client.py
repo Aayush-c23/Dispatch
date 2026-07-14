@@ -22,7 +22,7 @@ class RouteResultLike(Protocol):
     estimated_seconds: float
 
 
-RouteProvider = Callable[[float, float, float, float], RouteResultLike]
+RouteProvider = Callable[[float, float, float, float], list[RouteResultLike]]
 AssignmentInput = ObjectiveAction | Mapping[str, Any]
 ENGINE_SERVICE_PATH = Path(__file__).resolve().parents[3] / "engine-service"
 
@@ -44,21 +44,25 @@ def _default_route_provider() -> RouteProvider:
     if engine_path not in sys.path:
         sys.path.insert(0, engine_path)
 
-    from src.router import route_between_points
+    from src.router import k_routes_between_points
 
-    return route_between_points
+    return k_routes_between_points
 
 
 def _route_payload(
     convoy_id: str,
     request_id: str,
     route: RouteResultLike,
+    is_primary: bool,
+    label: str,
 ) -> RouteResponse:
     """Convert the engine's dataclass payload into the API's validated contract."""
 
     return RouteResponse(
         convoy_id=convoy_id,
         request_id=request_id,
+        label=label,
+        is_primary=is_primary,
         origin_node=route.origin_node,
         destination_node=route.destination_node,
         node_ids=route.node_ids,
@@ -108,11 +112,15 @@ def compute_routes_for_assignments(
             raise EngineClientError(f"Unknown request in assignment: {request_id!r}.")
 
         try:
-            route = provider(convoy.lat, convoy.lon, request.lat, request.lon)
+            route_candidates = provider(convoy.lat, convoy.lon, request.lat, request.lon)
         except Exception as exc:
             raise EngineClientError(
                 f"Unable to route convoy {convoy_id!r} to request {request_id!r}."
             ) from exc
-        routes.append(_route_payload(str(convoy_id), str(request_id), route))
+            
+        for idx, route in enumerate(route_candidates):
+            is_primary = (idx == 0)
+            label = "Fastest Route" if is_primary else f"Alternate Route {idx}"
+            routes.append(_route_payload(str(convoy_id), str(request_id), route, is_primary, label))
 
     return routes

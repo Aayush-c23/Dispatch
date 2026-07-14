@@ -9,6 +9,8 @@ from typing import Any
 import networkx as nx
 import osmnx as ox
 
+from .obstructions import overlay
+
 DEFAULT_GRAPH_PATH = Path(__file__).resolve().parents[1] / "data" / "road_network.graphml"
 
 
@@ -59,14 +61,22 @@ def load_graph(graph_path: str | Path = DEFAULT_GRAPH_PATH) -> nx.MultiDiGraph:
 
 
 def routing_weight(_u: int, _v: int, edge_data: dict[str, Any]) -> float:
-    """NetworkX weight callback that excludes blocked parallel edges."""
+    """NetworkX weight callback that excludes blocked parallel edges (considering live overlay)."""
 
     usable_weights: list[float] = []
     for data in edge_data.values():
-        if data.get("blocked"):
+        edge_id = str(data.get("edge_id", ""))
+        live_data = overlay.get_edge_overlay(edge_id) if edge_id else None
+        
+        is_blocked = live_data["blocked"] if live_data else data.get("blocked")
+        if is_blocked:
             continue
+            
         travel_time = _coerce_float(data.get("travel_time"))
         length = _coerce_float(data.get("length"))
-        usable_weights.append(travel_time if travel_time > 0 else length)
+        base_weight = travel_time if travel_time > 0 else length
+        
+        multiplier = live_data["hazard_multiplier"] if live_data else 1.0
+        usable_weights.append(base_weight * max(multiplier, 1.0))
 
     return min(usable_weights) if usable_weights else float("inf")

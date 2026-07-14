@@ -144,6 +144,8 @@ class MissionBriefing(SchemaModel):
 class RouteResponse(SchemaModel):
     convoy_id: str = Field(min_length=1)
     request_id: str = Field(min_length=1)
+    label: str = Field(default="Primary Route", min_length=1)
+    is_primary: bool = Field(default=False)
     origin_node: int
     destination_node: int
     node_ids: list[int] = Field(min_length=1)
@@ -197,6 +199,16 @@ class DisruptionEventRequest(SchemaModel):
     type: HazardType
     severity: Severity
     description: str = Field(min_length=1)
+
+
+class SpatialObstructionRequest(SchemaModel):
+    """A user-triggered physical obstruction affecting all edges within a radius."""
+
+    lat: Latitude
+    lon: Longitude
+    radius_meters: float = Field(gt=0)
+    hazard_type: HazardType
+    severity: Severity
 
 
 class WeatherData(SchemaModel):

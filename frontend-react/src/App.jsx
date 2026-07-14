@@ -1,5 +1,5 @@
 import { Bell, LayoutPanelTop, Settings, X } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import MapView from './components/MapView';
 import ObjectiveInput from './components/ObjectiveInput';
 import MissionBriefing from './components/MissionBriefing';
@@ -8,82 +8,20 @@ import OperationalQuery from './components/OperationalQuery';
 import SystemStatus from './components/SystemStatus';
 import OperationsDashboard from './components/OperationsDashboard';
 import Panel from './components/Panel';
-import { createPlan, triggerDisruption, askOperationalQuery, triggerFlood, fetchLiveContext } from './services/api';
+import LiveContextPanel from './components/LiveContextPanel';
+import { createPlan, triggerDisruption, askOperationalQuery, triggerFlood, fetchLiveContext, startTransit, selectRoute } from './services/api';
 import { useWebSocket } from './hooks/useWebSocket';
 
-const fallbackBriefing = {
-  crisis_assessment: 'Rising floodwater is constraining central access. Elm Street shelter has 340 occupants and requires evacuation before nightfall.',
-  highest_risk_areas: [{ description: 'Elm Street shelter' }, { description: 'River crossing' }, { description: 'Sector 4 clinic' }],
-  convoy_assignments: [{ convoy_id: 'Convoy 1', request_id: 'Elm Street evacuation' }, { convoy_id: 'Convoy 2', request_id: 'Sector 4 medical delivery' }],
-  predicted_bottlenecks: [{ description: 'River crossing congestion and flooding on the central access corridor.' }],
-  confidence_level: 'HIGH',
-  backup_plan: 'If Elm Street access fails, Convoy 1 reroutes west via A420, adding an estimated 12 minutes.',
-};
 
-const fallbackRoutes = [
-  {
-    convoy_id: 'convoy-1',
-    request_id: 'req-evac-elm-shelter',
-    geometry: [
-      { lat: 51.5014, lon: -0.1419 },
-      { lat: 51.5030, lon: -0.1390 },
-      { lat: 51.5042, lon: -0.1375 },
-      { lat: 51.5056, lon: -0.1356 }
-    ],
-    color: '#81b9ff'
-  },
-  {
-    convoy_id: 'convoy-2',
-    request_id: 'req-med-sector-4',
-    geometry: [
-      { lat: 51.5080, lon: -0.1281 },
-      { lat: 51.5085, lon: -0.1250 },
-      { lat: 51.5091, lon: -0.1216 }
-    ],
-    color: '#a78bfa'
-  },
-  {
-    convoy_id: 'convoy-3',
-    request_id: 'req-supply-waterloo-reception',
-    geometry: [
-      { lat: 51.5034, lon: -0.1136 },
-      { lat: 51.5022, lon: -0.1133 },
-      { lat: 51.5010, lon: -0.1131 }
-    ],
-    color: '#34d399'
-  }
-];
-
-const fallbackLog = [
-  { message: 'GPT-5.6 — Crisis Response Agent', level: 'AGENT' },
-  { message: '> Analyzing coordinator objective…' },
-  { message: '✓ Sector 4 access route confirmed clear.' },
-  { message: '! Elm Street shelter: 340 occupants, high priority.' },
-];
-
-const fallbackState = {
-  convoys: [
-    { convoy_id: 'convoy-1', name: 'Convoy 1 (Westminster)', lat: 51.5014, lon: -0.1419, status: 'STAGING' },
-    { convoy_id: 'convoy-2', name: 'Convoy 2 (Trafalgar)', lat: 51.5080, lon: -0.1281, status: 'STAGING' },
-    { convoy_id: 'convoy-3', name: 'Convoy 3 (Waterloo)', lat: 51.5034, lon: -0.1136, status: 'STAGING' }
-  ],
-  requests: [
-    { request_id: 'req-evac-elm-shelter', type: 'EVACUATION', lat: 51.5056, lon: -0.1356, priority: 5, status: 'OPEN' },
-    { request_id: 'req-med-sector-4', type: 'MEDICAL', lat: 51.5091, lon: -0.1216, priority: 5, status: 'OPEN' },
-    { request_id: 'req-supply-waterloo-reception', type: 'SUPPLY', lat: 51.5010, lon: -0.1131, priority: 3, status: 'OPEN' }
-  ],
-  hazards: [
-    { hazard_id: 'haz-river-flood-watch', type: 'FLOOD', severity: 3 }
-  ]
-};
 
 export default function App() {
-  const [briefing, setBriefing] = useState(fallbackBriefing);
-  const [routes, setRoutes] = useState(fallbackRoutes);
-  const [reasoningLog, setReasoningLog] = useState(fallbackLog);
-  const [opsState, setOpsState] = useState(fallbackState);
+  const [briefing, setBriefing] = useState(null);
+  const [routes, setRoutes] = useState([]);
+  const [reasoningLog, setReasoningLog] = useState([]);
+  const [opsState, setOpsState] = useState(null);
   const [isPlanning, setIsPlanning] = useState(false);
   const [planningError, setPlanningError] = useState('');
+  const hasBootstrapped = useRef(false);
 
   const [queryResponse, setQueryResponse] = useState('');
   const [isQuerying, setIsQuerying] = useState(false);
@@ -98,7 +36,6 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState('gpt-5.6');
   const [simulationDelay, setSimulationDelay] = useState(0);
   const [soundAlerts, setSoundAlerts] = useState(true);
-  const [offlineMode, setOfflineMode] = useState(false);
   const [layoutMode, setLayoutMode] = useState('split');
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -131,7 +68,7 @@ export default function App() {
         if (data.weather) setWeather(data.weather);
         if (data.alerts) setAlerts(data.alerts);
       } catch (err) {
-        // Fallback context stays active
+        // Handle failure silently or set error state if needed
       }
     }
     loadLiveContext();
@@ -158,182 +95,45 @@ export default function App() {
     }
   }, [lastMessage]);
 
-  function haversineDistance(c1, c2) {
-    const R = 6371; // Earth radius in km
-    const dLat = (c2.lat - c1.lat) * Math.PI / 180;
-    const dLon = (c2.lon - c1.lon) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(c1.lat * Math.PI / 180) * Math.cos(c2.lat * Math.PI / 180) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
+  useEffect(() => {
+    if (!opsState && !isPlanning && routes.length === 0 && !hasBootstrapped.current) {
+      hasBootstrapped.current = true;
+      handleGeneratePlan("Deliver medical supplies to Sector 4 and prioritize evacuating the shelter on Elm Street before nightfall.");
+    }
+  }, [opsState, isPlanning, routes]);
+
+  async function handleRouteSelect(convoyId, label) {
+    try {
+      await selectRoute(convoyId, label);
+    } catch (err) {
+      setReasoningLog((previous) => [...previous, { message: `! Route selection failed: ${err.message}`, level: 'WARN' }]);
+    }
   }
 
-  async function handleGeneratePlan(objective) {
+  async function executePlanAction(apiCall, actionName, args = []) {
     setIsPlanning(true);
     setPlanningError('');
     try {
       if (simulationDelay > 0) {
         await new Promise((resolve) => setTimeout(resolve, simulationDelay * 1000));
       }
-      let plan;
-      if (offlineMode) {
-        plan = {
-          briefing: fallbackBriefing,
-          routes: fallbackRoutes,
-          state: fallbackState,
-          reasoning_log: [
-            { timestamp: new Date().toISOString(), message: '> Initialized offline sandbox planner.', level: 'INFO' },
-            { timestamp: new Date().toISOString(), message: 'Using seeded fallback logic.', level: 'INFO' },
-          ]
-        };
-      } else {
-        plan = await createPlan(objective);
-      }
+      const plan = await apiCall(...args);
       setBriefing(plan.briefing);
       setRoutes(plan.routes);
       setOpsState(plan.state);
-
-      // Find the nearest convoy for each request using the Haversine algorithm
-      const nearestLogs = [];
-      if (plan.state && plan.state.requests && plan.state.convoys) {
-        plan.state.requests.forEach((req) => {
-          let minDistance = Infinity;
-          let nearestConvoy = null;
-          plan.state.convoys.forEach((conv) => {
-            const dist = haversineDistance(
-              { lat: req.lat, lon: req.lon },
-              { lat: conv.lat, lon: conv.lon }
-            );
-            if (dist < minDistance) {
-              minDistance = dist;
-              nearestConvoy = conv;
-            }
-          });
-          if (nearestConvoy) {
-            nearestLogs.push({
-              timestamp: new Date().toISOString(),
-              message: `> [Haversine] Nearest convoy to "${req.type}" request at (${req.lat.toFixed(4)}, ${req.lon.toFixed(4)}) is "${nearestConvoy.name}" (${minDistance.toFixed(2)} km).`,
-              level: 'INFO'
-            });
-          }
-        });
-      }
-
-      setReasoningLog((previous) => [...previous, ...plan.reasoning_log, ...nearestLogs]);
+      setReasoningLog((previous) => [...previous, ...(plan.reasoning_log || [])]);
       playWarningBeep();
     } catch (error) {
-      setPlanningError('Backend unavailable. Showing the operational fallback plan.');
+      setPlanningError(`${actionName} failed: ${error.message}`);
       setReasoningLog((previous) => [...previous, { message: `! ${error.message}`, level: 'WARN' }]);
     } finally {
       setIsPlanning(false);
     }
   }
 
-  async function handleInjectDisruption() {
-    setPlanningError('');
-    try {
-      if (simulationDelay > 0) {
-        await new Promise((resolve) => setTimeout(resolve, simulationDelay * 1000));
-      }
-      let plan;
-      if (offlineMode) {
-        plan = {
-          briefing: {
-            ...fallbackBriefing,
-            crisis_assessment: 'Offline Simulation: Bridge 7 collapse blocks transit edge.',
-          },
-          routes: [
-            {
-              convoy_id: 'convoy-1',
-              request_id: 'req-evac-elm-shelter',
-              geometry: [
-                { lat: 51.5014, lon: -0.1419 },
-                { lat: 51.4995, lon: -0.1410 },
-                { lat: 51.5005, lon: -0.1360 },
-                { lat: 51.5030, lon: -0.1350 },
-                { lat: 51.5056, lon: -0.1356 }
-              ],
-              color: '#ef5350'
-            },
-            fallbackRoutes[1],
-            fallbackRoutes[2]
-          ],
-          state: {
-            ...fallbackState,
-            hazards: [...fallbackState.hazards, { hazard_id: 'haz-bridge-7-collapse', type: 'COLLAPSE', severity: 5, edge_ids: [] }]
-          },
-          reasoning_log: [
-            { timestamp: new Date().toISOString(), message: '> Simulated offline bridge collapse.', level: 'AGENT' },
-            { timestamp: new Date().toISOString(), message: 'Rerouting Convoy 1 south around Bridge 7 collapse zone.', level: 'INFO' }
-          ]
-        };
-      } else {
-        plan = await triggerDisruption();
-      }
-      setBriefing(plan.briefing);
-      setRoutes(plan.routes);
-      setOpsState(plan.state);
-      setReasoningLog(plan.reasoning_log);
-      playWarningBeep();
-    } catch (error) {
-      setPlanningError(`Disruption failed: ${error.message}`);
-      setReasoningLog((previous) => [...previous, { message: `! ${error.message}`, level: 'WARN' }]);
-    }
-  }
-
-  async function handleInjectFlood() {
-    setPlanningError('');
-    try {
-      if (simulationDelay > 0) {
-        await new Promise((resolve) => setTimeout(resolve, simulationDelay * 1000));
-      }
-      let plan;
-      if (offlineMode) {
-        plan = {
-          briefing: {
-            ...fallbackBriefing,
-            crisis_assessment: 'Offline Simulation: River flood surge blocks Embankment corridor.',
-          },
-          routes: [
-            {
-              convoy_id: 'convoy-1',
-              request_id: 'req-evac-elm-shelter',
-              geometry: [
-                { lat: 51.5014, lon: -0.1419 },
-                { lat: 51.5032, lon: -0.1430 },
-                { lat: 51.5060, lon: -0.1400 },
-                { lat: 51.5065, lon: -0.1370 },
-                { lat: 51.5056, lon: -0.1356 }
-              ],
-              color: '#f5ae3d'
-            },
-            fallbackRoutes[1],
-            fallbackRoutes[2]
-          ],
-          state: {
-            ...fallbackState,
-            hazards: [...fallbackState.hazards, { hazard_id: 'haz-river-flood-surge', type: 'FLOOD', severity: 5, edge_ids: [] }]
-          },
-          reasoning_log: [
-            { timestamp: new Date().toISOString(), message: '> Simulated offline river flood surge.', level: 'AGENT' },
-            { timestamp: new Date().toISOString(), message: 'Rerouting Convoy 1 north around Embankment flooded corridor.', level: 'INFO' }
-          ]
-        };
-      } else {
-        plan = await triggerFlood();
-      }
-      setBriefing(plan.briefing);
-      setRoutes(plan.routes);
-      setOpsState(plan.state);
-      setReasoningLog(plan.reasoning_log);
-      playWarningBeep();
-    } catch (error) {
-      setPlanningError(`Flood surge failed: ${error.message}`);
-      setReasoningLog((previous) => [...previous, { message: `! ${error.message}`, level: 'WARN' }]);
-    }
-  }
+  const handleGeneratePlan = (objective) => executePlanAction(createPlan, 'Planning request', [objective]);
+  const handleInjectDisruption = () => executePlanAction(triggerDisruption, 'Disruption');
+  const handleInjectFlood = () => executePlanAction(triggerFlood, 'Flood surge');
 
   async function handleAskQuery(question) {
     setIsQuerying(true);
@@ -343,12 +143,7 @@ export default function App() {
       if (simulationDelay > 0) {
         await new Promise((resolve) => setTimeout(resolve, simulationDelay * 1000));
       }
-      let res;
-      if (offlineMode) {
-        res = { answer: `[Offline Sandbox] Model answer for: "${question}". Safe routing fallback parameters remain stable in the Westminster area.` };
-      } else {
-        res = await askOperationalQuery(question);
-      }
+      const res = await askOperationalQuery(question);
       setQueryResponse(res.answer);
     } catch (err) {
       setQueryError(err.message);
@@ -360,117 +155,14 @@ export default function App() {
   async function handleSimulateTransit() {
     if (routes.length === 0 || isSimulatingTransit) return;
     setIsSimulatingTransit(true);
-    
-    const duration = 10100; // 10.1 seconds animation (optimized to satisfy the 10s minimum requirement)
-    const startTime = performance.now();
-
-    function getLatLon(point) {
-      if (Array.isArray(point)) {
-        return { lat: point[1], lon: point[0] };
-      } else if (point && typeof point === 'object') {
-        return { lat: point.lat, lon: point.lon };
-      }
-      return null;
+    try {
+      await startTransit();
+      setReasoningLog((previous) => [...previous, { message: '> Initiating real-time convoy transit...', level: 'AGENT' }]);
+    } catch (err) {
+      setReasoningLog((previous) => [...previous, { message: `! Transit start failed: ${err.message}`, level: 'WARN' }]);
+    } finally {
+      setIsSimulatingTransit(false);
     }
-
-    function interpolatePosition(geometry, progress) {
-      if (geometry.length === 0) return null;
-      if (progress <= 0) return getLatLon(geometry[0]);
-      if (progress >= 1) return getLatLon(geometry[geometry.length - 1]);
-
-      const totalPoints = geometry.length;
-      const targetIndex = progress * (totalPoints - 1);
-      const index = Math.floor(targetIndex);
-      const fraction = targetIndex - index;
-
-      const p1 = getLatLon(geometry[index]);
-      const p2 = getLatLon(geometry[index + 1]);
-
-      if (!p1 || !p2) return null;
-
-      return {
-        lat: p1.lat + (p2.lat - p1.lat) * fraction,
-        lon: p1.lon + (p2.lon - p1.lon) * fraction,
-      };
-    }
-
-    // 1. Identify the nearest convoys using Haversine algorithm
-    const initialLogs = [{ message: '> Initiating real-time convoy transit animation (12 seconds)...', level: 'AGENT' }];
-    
-    routes.forEach((route) => {
-      const convoy = opsState.convoys.find((c) => c.convoy_id === route.convoy_id);
-      const request = opsState.requests.find((r) => r.request_id === route.request_id);
-      if (convoy && request) {
-        // Calculate haversine distance
-        const dist = haversineDistance(
-          { lat: convoy.lat, lon: convoy.lon },
-          { lat: request.lat, lon: request.lon }
-        );
-        initialLogs.push({
-          message: `> [Haversine] "${convoy.name}" is nearest to "${request.type}" (${dist.toFixed(2)} km). Moving now...`,
-          level: 'INFO'
-        });
-      }
-    });
-
-    setReasoningLog((previous) => [...previous, ...initialLogs]);
-
-    let logged25 = false;
-    let logged50 = false;
-    let logged75 = false;
-
-    return new Promise((resolve) => {
-      function tick(now) {
-        const elapsed = now - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-
-        // Periodically log progress updates
-        if (progress >= 0.25 && !logged25) {
-          logged25 = true;
-          setReasoningLog((prev) => [...prev, { message: '[Transit] Convoys have covered 25% of their routes.', level: 'INFO' }]);
-        }
-        if (progress >= 0.5 && !logged50) {
-          logged50 = true;
-          setReasoningLog((prev) => [...prev, { message: '[Transit] Convoys are 50% en-route to staging areas.', level: 'INFO' }]);
-        }
-        if (progress >= 0.75 && !logged75) {
-          logged75 = true;
-          setReasoningLog((prev) => [...prev, { message: '[Transit] Convoys are 75% complete. Nearing destinations.', level: 'INFO' }]);
-        }
-
-        setOpsState((prevState) => {
-          const updatedConvoys = prevState.convoys.map((c) => {
-            const assignedRoute = routes.find((r) => r.convoy_id === c.convoy_id);
-            if (assignedRoute && assignedRoute.geometry && assignedRoute.geometry.length > 0) {
-              const pos = interpolatePosition(assignedRoute.geometry, progress);
-              if (pos) {
-                return {
-                  ...c,
-                  lat: pos.lat,
-                  lon: pos.lon,
-                  status: progress < 1 ? 'EN_ROUTE' : 'ARRIVED',
-                };
-              }
-            }
-            return c;
-          });
-          return {
-            ...prevState,
-            convoys: updatedConvoys,
-          };
-        });
-
-        if (progress < 1) {
-          requestAnimationFrame(tick);
-        } else {
-          setIsSimulatingTransit(false);
-          setReasoningLog((previous) => [...previous, { message: '✓ All nearest convoys successfully arrived at designated request zones.', level: 'INFO' }]);
-          playWarningBeep();
-          resolve();
-        }
-      }
-      requestAnimationFrame(tick);
-    });
   }
 
   return (
@@ -529,7 +221,7 @@ export default function App() {
       </header>
       <div className="body" style={{ gridTemplateColumns: layoutMode === 'map-only' ? '1fr' : 'minmax(0,2.05fr) minmax(348px,1fr)' }}>
         <section className="map-panel">
-          <MapView routes={routes} state={opsState}/>
+          <MapView routes={routes} state={opsState} onRouteSelect={handleRouteSelect} />
         </section>
         {layoutMode !== 'map-only' && (
           <aside className="control">
@@ -547,20 +239,7 @@ export default function App() {
             <MissionBriefing briefing={briefing}/>
             <ReasoningLog entries={reasoningLog}/>
             <OperationalQuery onQuery={handleAskQuery} isQuerying={isQuerying} response={queryResponse} error={queryError}/>
-            {alerts && alerts.length > 0 && (
-              <Panel title="GDACS Crisis Feed" className="alerts-panel">
-                <div style={{ padding: '8px 10px', maxHeight: '110px', overflowY: 'auto', font: '9px/1.45 Inter', color: '#a2b4cd' }}>
-                  {alerts.map((alert, index) => (
-                    <div key={index} style={{ marginBottom: '8px', borderBottom: '1px solid #24303e', paddingBottom: '6px' }}>
-                      <a href={alert.link} target="_blank" rel="noopener noreferrer" style={{ color: '#f5ae3d', textDecoration: 'none', fontWeight: '600' }}>
-                        {alert.title}
-                      </a>
-                      <p style={{ margin: '3px 0 0', color: '#7e8f9f', fontSize: '8px' }}>{alert.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </Panel>
-            )}
+            <LiveContextPanel />
             <SystemStatus/>
           </aside>
         )}
@@ -617,13 +296,7 @@ export default function App() {
                 </div>
                 <input type="checkbox" checked={soundAlerts} onChange={(e) => setSoundAlerts(e.target.checked)} style={{ cursor: 'pointer', width: '14px', height: '14px' }} />
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', padding: '4px 0', borderTop: '1px solid #24303e', paddingTop: '12px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <label style={{ fontWeight: '600', color: '#88bfff', textTransform: 'uppercase', fontSize: '8px', letterSpacing: '0.8px' }}>Sandbox Offline Mode</label>
-                  <span style={{ fontSize: '8px', color: '#718097' }}>Operate locally without requiring the Python API.</span>
-                </div>
-                <input type="checkbox" checked={offlineMode} onChange={(e) => setOfflineMode(e.target.checked)} style={{ cursor: 'pointer', width: '14px', height: '14px' }} />
-              </div>
+
             </div>
             <footer style={{ padding: '10px 14px', borderTop: '1px solid #273342', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#141b25' }}>
               <button onClick={() => {
