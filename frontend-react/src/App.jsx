@@ -1,12 +1,14 @@
 import { Bell, LayoutPanelTop, Settings } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import MapView from './components/MapView';
 import ObjectiveInput from './components/ObjectiveInput';
 import MissionBriefing from './components/MissionBriefing';
 import ReasoningLog from './components/ReasoningLog';
+import OperationalQuery from './components/OperationalQuery';
 import SystemStatus from './components/SystemStatus';
 import OperationsDashboard from './components/OperationsDashboard';
-import { createPlan } from './services/api';
+import { createPlan, triggerDisruption, askOperationalQuery } from './services/api';
+import { useWebSocket } from './hooks/useWebSocket';
 
 const fallbackBriefing = {
   crisis_assessment: 'Rising floodwater is constraining central access. Elm Street shelter has 340 occupants and requires evacuation before nightfall.',
@@ -30,12 +32,53 @@ const fallbackLog = [
   { message: '! Elm Street shelter: 340 occupants, high priority.' },
 ];
 
+const fallbackState = {
+  convoys: [
+    { convoy_id: 'convoy-1', name: 'Convoy 1 (Westminster)', lat: 51.5014, lon: -0.1419, status: 'STAGING' },
+    { convoy_id: 'convoy-2', name: 'Convoy 2 (Trafalgar)', lat: 51.5080, lon: -0.1281, status: 'STAGING' },
+    { convoy_id: 'convoy-3', name: 'Convoy 3 (Waterloo)', lat: 51.5034, lon: -0.1136, status: 'STAGING' }
+  ],
+  requests: [
+    { request_id: 'req-evac-elm-shelter', type: 'EVACUATION', lat: 51.5056, lon: -0.1356, priority: 5, status: 'OPEN' },
+    { request_id: 'req-med-sector-4', type: 'MEDICAL', lat: 51.5091, lon: -0.1216, priority: 5, status: 'OPEN' },
+    { request_id: 'req-supply-waterloo-reception', type: 'SUPPLY', lat: 51.5010, lon: -0.1131, priority: 3, status: 'OPEN' }
+  ],
+  hazards: [
+    { hazard_id: 'haz-river-flood-watch', type: 'FLOOD', severity: 3 }
+  ]
+};
+
 export default function App() {
   const [briefing, setBriefing] = useState(fallbackBriefing);
   const [routes, setRoutes] = useState(fallbackRoutes);
   const [reasoningLog, setReasoningLog] = useState(fallbackLog);
+  const [opsState, setOpsState] = useState(fallbackState);
   const [isPlanning, setIsPlanning] = useState(false);
   const [planningError, setPlanningError] = useState('');
+
+  const [queryResponse, setQueryResponse] = useState('');
+  const [isQuerying, setIsQuerying] = useState(false);
+  const [queryError, setQueryError] = useState('');
+
+  const { connected, lastMessage } = useWebSocket();
+
+  // Listen to WebSocket broadcasts
+  useEffect(() => {
+    if (lastMessage && lastMessage.type === 'ops_snapshot') {
+      if (lastMessage.state) {
+        setOpsState(lastMessage.state);
+      }
+      if (lastMessage.routes && lastMessage.routes.length > 0) {
+        setRoutes(lastMessage.routes);
+      }
+      if (lastMessage.briefing) {
+        setBriefing(lastMessage.briefing);
+      }
+      if (lastMessage.reasoning_log) {
+        setReasoningLog(lastMessage.reasoning_log);
+      }
+    }
+  }, [lastMessage]);
 
   async function handleGeneratePlan(objective) {
     setIsPlanning(true);
@@ -44,6 +87,7 @@ export default function App() {
       const plan = await createPlan(objective);
       setBriefing(plan.briefing);
       setRoutes(plan.routes);
+      setOpsState(plan.state);
       setReasoningLog((previous) => [...previous, ...plan.reasoning_log]);
     } catch (error) {
       setPlanningError('Backend unavailable. Showing the operational fallback plan.');
@@ -53,5 +97,68 @@ export default function App() {
     }
   }
 
-  return <main className="shell"><header className="app-header"><div className="brand"><span className="brand-mark">RG</span><div><h1>RELIEFGRID <em>AI</em></h1><p>HUMANITARIAN OPERATIONS PLATFORM</p></div></div><div className="header-actions"><button aria-label="Settings"><Settings size={17}/></button><button aria-label="Layout"><LayoutPanelTop size={17}/></button><button aria-label="Notifications"><Bell size={17}/><i/></button></div></header><div className="body"><section className="map-panel"><MapView routes={routes}/></section><aside className="control"><div className="section-label">Operations Control <span>● LIVE</span></div><ObjectiveInput onGenerate={handleGeneratePlan} isPlanning={isPlanning} error={planningError}/><MissionBriefing briefing={briefing}/><ReasoningLog entries={reasoningLog}/><SystemStatus/></aside></div><OperationsDashboard/></main>;
+  async function handleInjectDisruption() {
+    setPlanningError('');
+    try {
+      setReasoningLog((previous) => [...previous, { message: '> Simulating bridge collapse disruption…', level: 'AGENT' }]);
+      const plan = await triggerDisruption();
+      setBriefing(plan.briefing);
+      setRoutes(plan.routes);
+      setOpsState(plan.state);
+      setReasoningLog(plan.reasoning_log);
+    } catch (error) {
+      setPlanningError(`Disruption failed: ${error.message}`);
+      setReasoningLog((previous) => [...previous, { message: `! ${error.message}`, level: 'WARN' }]);
+    }
+  }
+
+  async function handleAskQuery(question) {
+    setIsQuerying(true);
+    setQueryError('');
+    setQueryResponse('');
+    try {
+      const res = await askOperationalQuery(question);
+      setQueryResponse(res.answer);
+    } catch (err) {
+      setQueryError(err.message);
+    } finally {
+      setIsQuerying(false);
+    }
+  }
+
+  return (
+    <main className="shell">
+      <header className="app-header">
+        <div className="brand">
+          <span className="brand-mark">RG</span>
+          <div>
+            <h1>RELIEFGRID <em>AI</em></h1>
+            <p>HUMANITARIAN OPERATIONS PLATFORM</p>
+          </div>
+        </div>
+        <div className="header-actions">
+          <button aria-label="Settings"><Settings size={17}/></button>
+          <button aria-label="Layout"><LayoutPanelTop size={17}/></button>
+          <button aria-label="Notifications" style={{ position: 'relative' }}>
+            <Bell size={17}/>
+            {connected && <i style={{ backgroundColor: '#40c98b' }}/>}
+          </button>
+        </div>
+      </header>
+      <div className="body">
+        <section className="map-panel">
+          <MapView routes={routes} state={opsState}/>
+        </section>
+        <aside className="control">
+          <div className="section-label">Operations Control <span>● {connected ? 'LIVE' : 'OFFLINE'}</span></div>
+          <ObjectiveInput onGenerate={handleGeneratePlan} onInjectDisruption={handleInjectDisruption} isPlanning={isPlanning} error={planningError}/>
+          <MissionBriefing briefing={briefing}/>
+          <ReasoningLog entries={reasoningLog}/>
+          <OperationalQuery onQuery={handleAskQuery} isQuerying={isQuerying} response={queryResponse} error={queryError}/>
+          <SystemStatus/>
+        </aside>
+      </div>
+      <OperationsDashboard/>
+    </main>
+  );
 }

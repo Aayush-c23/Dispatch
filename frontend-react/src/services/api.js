@@ -13,3 +13,30 @@ export async function createPlan(objective) {
 
   return response.json();
 }
+
+export async function triggerDisruption() {
+  const response = await fetch(`${API_BASE_URL}/events/bridge-collapse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Disruption trigger failed (${response.status}).`);
+  }
+
+  return response.json();
+}
+
+export async function askOperationalQuery(question) {
+  const response = await fetch(`${API_BASE_URL}/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Operational query failed (${response.status}).`);
+  }
+
+  return response.json();
+}
