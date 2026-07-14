@@ -108,9 +108,85 @@ Start: {'lat': 51.5011541, 'lon': -0.140452}
 End: {'lat': 51.5075476, 'lon': -0.1278268}
 ```
 
+Phase 1 Task 4 is complete:
+
+- `engine-service/src/assignment_solver.py` now provides deterministic convoy assignment.
+- It considers open requests in priority, population-affected, and stable-ID order.
+- Only unassigned, positive-capacity `STAGING` convoys are eligible; blocked and otherwise unavailable convoys are skipped.
+- Optional request demand (`required_capacity`, `capacity_required`, or `demand`) is enforced when present.
+- Feasible convoy/request pairs are ranked by route ETA, then spare capacity and convoy ID for deterministic ties.
+- Assignments expose backend-compatible `ASSIGN` actions, including the required `priority_score`, plus route data.
+- Added focused tests in `engine-service/tests/test_assignment_solver.py` using an injected route provider.
+
+Verified assignment solver command:
+
+```powershell
+$env:PYTHONPATH=(Resolve-Path 'engine-service').Path
+C:\Users\rayha\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m unittest discover -s engine-service\tests -v
+```
+
+Verified result: 2 tests passed, confirming a high-priority request is assigned first and insufficient/unavailable convoys are not assigned.
+
+Phase 1 Task 5 is complete:
+
+- `backend-python/app/schemas/relief.py` now contains the Pydantic contracts for operational state, objective commands, Mission Briefings, route responses, plan responses, reasoning logs, and disruption event requests.
+- Added the required string enums: convoy status, request type/status, hazard type, action type, and confidence level.
+- Coordinates are bounds-checked, IDs and operational text reject empty values, capacity must be positive, and priority/severity are strict integers from 1 to 5.
+- All schema models reject unexpected fields to surface contract drift early.
+- Added focused schema tests in `backend-python/tests/test_relief_schemas.py` for valid operational state/briefing construction and invalid enum/priority rejection.
+
+Static verification completed successfully:
+
+```powershell
+python -m py_compile backend-python\app\schemas\relief.py backend-python\tests\test_relief_schemas.py
+git diff --check
+```
+
+The current checkout does not contain the previously documented `backend-python/.venv`, and installing the declared dependencies timed out after network access was approved. The Pydantic runtime test remains ready to run when that environment is restored:
+
+```powershell
+$env:PYTHONPATH=(Resolve-Path 'backend-python').Path
+backend-python\.venv\Scripts\python.exe -m unittest discover -s backend-python\tests -v
+```
+
+Phase 1 Task 6 is complete:
+
+- `backend-python/app/services/engine_client.py` now provides the backend-to-engine service boundary.
+- `compute_routes_for_assignments(state, assignments)` resolves convoys and requests from the supplied operational state and produces validated `RouteResponse` values for MapLibre-ready frontend use.
+- The engine router is imported lazily from `engine-service/`, preserving the separate-tier boundary while allowing local MVP integration.
+- `ASSIGN` and `REROUTE` actions are routed; `HOLD` actions intentionally produce no route.
+- Unknown convoy/request IDs, malformed routing actions, and engine failures raise `EngineClientError` rather than returning stale or invented data.
+- Added focused tests in `backend-python/tests/test_engine_client.py` using an injected fake route provider.
+
+Static verification completed successfully:
+
+```powershell
+python -m py_compile backend-python\app\services\engine_client.py backend-python\tests\test_engine_client.py engine-service\src\assignment_solver.py
+git diff --check
+```
+
+The engine assignment tests were rerun successfully (2 passed). The new backend engine-client tests are ready to run with the restored backend virtual environment described under Task 5.
+
+Phase 1 Task 7 is complete:
+
+- Added `backend-python/app/services/state_store.py`, a thread-safe in-memory owner for the live demo scenario.
+- The seeded Central London state has stable convoy IDs (`convoy-1` through `convoy-3`), the required medical and Elm shelter evacuation requests, a lower-priority Waterloo supply request, and a flood-watch hazard.
+- The store provides isolated `get_state()` copies, JSON-safe `snapshot()` payloads, convoy assignment updates, hazard insertion, and request-status updates.
+- Assignment updates enforce operational integrity: unknown IDs, blocked/non-staging convoys, duplicate request assignments, and unavailable requests are rejected with `StateStoreError`.
+- Added focused tests in `backend-python/tests/test_state_store.py` for seed data, state isolation, lifecycle mutations, duplicate-assignment prevention, and JSON snapshot output.
+
+Static verification completed successfully:
+
+```powershell
+python -m py_compile backend-python\app\services\state_store.py backend-python\tests\test_state_store.py
+git diff --check
+```
+
+The state-store runtime tests are ready to run with the restored backend virtual environment described under Task 5.
+
 ## Current Git State
 
-There are uncommitted changes from Phase 1 Tasks 1, 2, and 3. Do not revert them.
+There are uncommitted changes from Phase 1 Tasks 1 through 7. Do not revert them.
 
 Expected modified/untracked files include:
 
@@ -124,6 +200,13 @@ engine-service/requirements.txt
 engine-service/src/graph_loader.py
 engine-service/src/router.py
 engine-service/scripts/fetch_road_network.py
+engine-service/tests/test_assignment_solver.py
+backend-python/app/schemas/relief.py
+backend-python/tests/test_relief_schemas.py
+backend-python/app/services/engine_client.py
+backend-python/tests/test_engine_client.py
+backend-python/app/services/state_store.py
+backend-python/tests/test_state_store.py
 IMPLEMENTATION_HANDOFF.md
 ```
 
@@ -259,7 +342,11 @@ Still a placeholder. Must define the Pydantic models listed in this handoff.
 
 `backend-python/app/services/engine_client.py`
 
-Still a placeholder. Must call or wrap routing engine behavior.
+Backend adapter for direct, lazy routing-engine integration. It validates assignment IDs against an operational-state snapshot and returns Pydantic `RouteResponse` values.
+
+`backend-python/app/services/state_store.py`
+
+Thread-safe in-memory store for the deterministic Central London scenario. It owns state mutation and exposes safe copies/snapshots for API and WebSocket consumers.
 
 `backend-python/app/services/event_injector.py`
 
@@ -491,6 +578,8 @@ Verified output:
 
 ### Task 4: Convoy Assignment Solver
 
+Status: complete.
+
 Goal: Map convoys to requests using deterministic heuristics before adding LLM orchestration.
 
 Implementation:
@@ -507,7 +596,11 @@ Verification:
 - Confirm open high-priority request gets assigned first.
 - Confirm unavailable or blocked convoys are skipped.
 
+Verified with `engine-service/tests/test_assignment_solver.py`: two injected-route unit tests confirm priority ordering, blocked-convoy exclusion, and declared-capacity exclusion.
+
 ### Task 5: Backend Schemas
+
+Status: complete.
 
 Goal: Lock the Pydantic contracts.
 
@@ -523,7 +616,11 @@ Verification:
 - Instantiate sample states and briefing objects.
 - Confirm invalid enum values fail validation.
 
+Focused runtime tests are included in `backend-python/tests/test_relief_schemas.py`. Static compilation and `git diff --check` passed in this checkout. Runtime execution is pending restoration of the documented backend virtual environment; the current checkout has no `.venv`, and dependency installation timed out after approved network access.
+
 ### Task 6: Backend Engine Client
+
+Status: complete.
 
 Goal: Let FastAPI call the routing layer.
 
@@ -539,7 +636,11 @@ Verification:
 - Use sample ops state and assignments.
 - Confirm route payloads are returned for assigned convoy/request pairs.
 
+Implemented focused injected-router tests in `backend-python/tests/test_engine_client.py`; they validate a frontend-ready route payload and unknown-convoy rejection. Static compilation and `git diff --check` passed. Runtime test execution remains pending restoration of the documented backend virtual environment.
+
 ### Task 7: Operational State Store
+
+Status: complete.
 
 Goal: Give the backend a live scenario state to plan against.
 
@@ -553,6 +654,8 @@ Implementation:
 Verification:
 
 - Import state store and confirm seed state validates with Pydantic schemas.
+
+Added `backend-python/tests/test_state_store.py` to validate seed entities, mutation behavior, duplicate-assignment prevention, and WebSocket-ready snapshots. Static compilation and `git diff --check` passed; runtime execution is pending restoration of the documented backend virtual environment.
 
 ### Task 8: Planning Endpoint Without LLM Fallback
 
